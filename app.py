@@ -2,8 +2,8 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 import pickle
 import pandas as pd
-import traceback
 import os
+import traceback
 
 app = Flask(__name__)
 CORS(app)
@@ -26,26 +26,19 @@ try:
 except Exception as e:
     print(f"❌ Preprocessor load error: {e}")
 
-# --- Route chính (kiểm tra) ---
+# --- Route chính ---
 @app.route('/', methods=['GET'])
 def home():
-    return jsonify({
-        "message": "Diabetes Prediction API is running",
-        "endpoints": {
-            "/predict": "POST (form-urlencoded)",
-            "/health": "GET"
-        }
-    })
+    return jsonify({"message": "Diabetes Prediction API is running"})
 
 # --- Route dự đoán ---
 @app.route('/predict', methods=['POST'])
 def predict():
-    # Kiểm tra model đã tải
     if model is None or preprocessor is None:
         return jsonify({'error': 'Model not loaded'}), 500
 
     try:
-        # Đọc dữ liệu từ form
+        # Lấy dữ liệu từ form
         age = float(request.form['age'])
         bmi = float(request.form['bmi'])
         hbA1c_level = float(request.form['hbA1c_level'])
@@ -56,7 +49,9 @@ def predict():
         heart_disease = int(request.form['heart_disease'])
         race = request.form['race']
 
-        # Tạo DataFrame đúng cấu trúc
+        # --- Tạo DataFrame với đúng cột như khi huấn luyện ---
+        # Các cột số và các cột phân loại còn lại giữ nguyên (gender, smoking_history, ...)
+        # Riêng race phải được one‑hot encode thành các cột riêng
         input_data = {
             'age': [age],
             'bmi': [bmi],
@@ -66,9 +61,19 @@ def predict():
             'smoking_history': [smoking_history],
             'hypertension': [hypertension],
             'heart_disease': [heart_disease],
-            'race': [race]
+            # Tạo 5 cột race one‑hot
+            'raceAfricanAmerican': [1 if race == 'AfricanAmerican' else 0],
+            'raceAsian': [1 if race == 'Asian' else 0],
+            'raceCaucasian': [1 if race == 'Caucasian' else 0],
+            'raceHispanic': [1 if race == 'Hispanic' else 0],
+            'raceOther': [1 if race == 'Other' else 0]
         }
+
         df = pd.DataFrame(input_data)
+
+        # In ra cấu trúc để debug (nếu cần)
+        app.logger.info(f"Input columns: {df.columns.tolist()}")
+        app.logger.info(f"Input shape: {df.shape}")
 
         # Tiền xử lý
         X_processed = preprocessor.transform(df)
@@ -83,7 +88,9 @@ def predict():
         })
 
     except KeyError as e:
-        return jsonify({'error': f'Missing field: {str(e)}'}), 400
+        return jsonify({'error': f'Thiếu trường dữ liệu: {str(e)}'}), 400
+    except ValueError as e:
+        return jsonify({'error': f'Giá trị không hợp lệ: {str(e)}'}), 400
     except Exception as e:
         app.logger.error(traceback.format_exc())
         return jsonify({'error': str(e)}), 500
@@ -97,7 +104,6 @@ def health():
         'preprocessor_loaded': preprocessor is not None
     })
 
-# --- Chạy server ---
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port, debug=True)
+    app.run(host='0.0.0.0', port=port)
