@@ -1,24 +1,51 @@
-from flask import Flask, request, render_template, jsonify
+from flask import Flask, request, jsonify
+from flask_cors import CORS
 import pickle
 import pandas as pd
+import traceback
+import os
 
 app = Flask(__name__)
+CORS(app)  # Cho phép mọi nguồn gốc
 
-# Tải model và preprocessor
-with open('diabetes_model.pkl', 'rb') as f:
-    model = pickle.load(f)
+# =============================================
+# TẢI MODEL VÀ PREPROCESSOR
+# =============================================
+MODEL_PATH = 'diabetes_model.pkl'
+PREPROCESSOR_PATH = 'preprocessor.pkl'
 
-with open('preprocessor.pkl', 'rb') as f:
-    preprocessor = pickle.load(f)
+model = None
+preprocessor = None
 
-@app.route('/')
-def index():
-    return render_template('index.html')
+try:
+    with open(MODEL_PATH, 'rb') as f:
+        model = pickle.load(f)
+    print("✅ Model loaded successfully.")
+except FileNotFoundError:
+    print(f"❌ Không tìm thấy file {MODEL_PATH}")
+except Exception as e:
+    print(f"❌ Lỗi khi tải model: {e}")
 
+try:
+    with open(PREPROCESSOR_PATH, 'rb') as f:
+        preprocessor = pickle.load(f)
+    print("✅ Preprocessor loaded successfully.")
+except FileNotFoundError:
+    print(f"❌ Không tìm thấy file {PREPROCESSOR_PATH}")
+except Exception as e:
+    print(f"❌ Lỗi khi tải preprocessor: {e}")
+
+# =============================================
+# API PREDICT
+# =============================================
 @app.route('/predict', methods=['POST'])
 def predict():
+    # Kiểm tra model và preprocessor
+    if model is None or preprocessor is None:
+        return jsonify({'error': 'Model hoặc preprocessor chưa được tải. Vui lòng kiểm tra server.'}), 500
+
     try:
-        # 1. Lấy dữ liệu từ form
+        # Lấy dữ liệu từ form
         age = float(request.form['age'])
         bmi = float(request.form['bmi'])
         hbA1c_level = float(request.form['hbA1c_level'])
@@ -27,11 +54,9 @@ def predict():
         smoking_history = request.form['smoking_history']
         hypertension = int(request.form['hypertension'])
         heart_disease = int(request.form['heart_disease'])
-        race = request.form['race']   # giữ nguyên giá trị gốc
+        race = request.form['race']
 
-        # 2. Tạo DataFrame với đúng tên cột như khi huấn luyện
-        #    (giả sử thứ tự cột là: age, bmi, hbA1c_level, blood_glucose_level,
-        #     gender, smoking_history, hypertension, heart_disease, race)
+        # Tạo DataFrame với đúng tên cột như khi huấn luyện
         input_dict = {
             'age': [age],
             'bmi': [bmi],
@@ -41,14 +66,18 @@ def predict():
             'smoking_history': [smoking_history],
             'hypertension': [hypertension],
             'heart_disease': [heart_disease],
-            'race': [race]   # <--- quan trọng: cột gốc, không phải one‑hot
+            'race': [race]  # QUAN TRỌNG: truyền cột gốc để preprocessor tự one-hot
         }
         df = pd.DataFrame(input_dict)
 
-        # 3. Tiền xử lý (preprocessor sẽ tự one‑hot race và chuẩn hóa số)
+        # In ra cấu trúc để debug (nếu cần)
+        app.logger.info(f"Input DataFrame columns: {df.columns.tolist()}")
+        app.logger.info(f"Input DataFrame shape: {df.shape}")
+
+        # Tiền xử lý
         X_processed = preprocessor.transform(df)
 
-        # 4. Dự đoán
+        # Dự đoán
         pred = model.predict(X_processed)[0]
         proba = model.predict_proba(X_processed)[0][1]
 
@@ -57,10 +86,27 @@ def predict():
             'probability': round(float(proba), 4)
         })
 
+    except KeyError as e:
+        app.logger.error(f"KeyError: {e}")
+        return jsonify({'error': f'Thiếu trường dữ liệu: {str(e)}'}), 400
+    except ValueError as e:
+        app.logger.error(f"ValueError: {e}")
+        return jsonify({'error': f'Giá trị không hợp lệ: {str(e)}'}), 400
     except Exception as e:
-        # Ghi log lỗi để dễ debug (tuỳ chọn)
-        app.logger.error(f"Prediction error: {str(e)}")
-        return jsonify({'error': str(e)}), 400
+        app.logger.error(f"Unexpected error: {e}")
+        app.logger.error(traceback.format_exc())
+        return jsonify({'error': f'Lỗi server nội bộ: {str(e)}'}), 500
+
+# =============================================
+# KIỂM TRA TRẠNG THÁI
+# =============================================
+@app.route('/health', methods=['GET'])
+def health():
+    return jsonify({
+        'status': 'ok',
+        'model_loaded': model is not None,
+        'preprocessor_loaded': preprocessor is not None
+    })
 
 if __name__ == '__main__':
     app.run(debug=True)
