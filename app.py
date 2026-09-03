@@ -49,9 +49,7 @@ def predict():
         heart_disease = int(request.form['heart_disease'])
         race = request.form['race']
 
-        # --- Tạo DataFrame với đúng cột như khi huấn luyện ---
-        # Các cột số và các cột phân loại còn lại giữ nguyên (gender, smoking_history, ...)
-        # Riêng race phải được one‑hot encode thành các cột riêng
+        # --- Tạo DataFrame với đúng tên cột (có dấu hai chấm) ---
         input_data = {
             'age': [age],
             'bmi': [bmi],
@@ -61,19 +59,18 @@ def predict():
             'smoking_history': [smoking_history],
             'hypertension': [hypertension],
             'heart_disease': [heart_disease],
-            # Tạo 5 cột race one‑hot
-            'raceAfricanAmerican': [1 if race == 'AfricanAmerican' else 0],
-            'raceAsian': [1 if race == 'Asian' else 0],
-            'raceCaucasian': [1 if race == 'Caucasian' else 0],
-            'raceHispanic': [1 if race == 'Hispanic' else 0],
-            'raceOther': [1 if race == 'Other' else 0]
+            # Quan trọng: tên cột phải có dấu hai chấm
+            'race:AfricanAmerican': [1 if race == 'AfricanAmerican' else 0],
+            'race:Asian': [1 if race == 'Asian' else 0],
+            'race:Caucasian': [1 if race == 'Caucasian' else 0],
+            'race:Hispanic': [1 if race == 'Hispanic' else 0],
+            'race:Other': [1 if race == 'Other' else 0]
         }
 
         df = pd.DataFrame(input_data)
 
-        # In ra cấu trúc để debug (nếu cần)
-        app.logger.info(f"Input columns: {df.columns.tolist()}")
-        app.logger.info(f"Input shape: {df.shape}")
+        # Kiểm tra debug (có thể xóa sau)
+        app.logger.info(f"Columns: {df.columns.tolist()}")
 
         # Tiền xử lý
         X_processed = preprocessor.transform(df)
